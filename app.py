@@ -1,5 +1,5 @@
-
 import math
+from io import StringIO
 from datetime import datetime
 
 import numpy as np
@@ -23,18 +23,72 @@ DEFAULT_TICKERS = [
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def load_sp500_tickers():
-    """Load the current S&P 500 constituent list from Wikipedia.
-    Falls back to the default watchlist if the public table is unavailable.
     """
-    url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+    Load the current S&P 500 constituent list using multiple public sources.
+
+    Source priority:
+    1) GitHub CSV mirror of the S&P 500 constituent list
+    2) Wikipedia HTML table
+    3) Built-in fallback watchlist only if both public sources fail
+
+    Returns:
+        (tickers, error_message)
+    """
+    errors = []
+
+    # Source 1: CSV mirror. This avoids HTML parser issues that can occur
+    # on Streamlit Cloud with pd.read_html().
+    csv_url = (
+        "https://raw.githubusercontent.com/datasets/"
+        "s-and-p-500-companies/master/data/constituents.csv"
+    )
     try:
-        tables = pd.read_html(url)
-        symbols = tables[0]["Symbol"].astype(str).str.strip().tolist()
-        # Yahoo Finance uses '-' rather than '.' for share-class tickers.
+        sp500 = pd.read_csv(csv_url)
+        if "Symbol" not in sp500.columns:
+            raise ValueError("CSV source does not contain a Symbol column")
+
+        symbols = (
+            sp500["Symbol"]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .tolist()
+        )
         symbols = [s.replace(".", "-") for s in symbols if s]
+
+        # Sanity check: a valid S&P 500 list should contain roughly 500 names.
+        if len(symbols) < 450:
+            raise ValueError(f"CSV source returned only {len(symbols)} symbols")
+
         return list(dict.fromkeys(symbols)), None
     except Exception as exc:
-        return DEFAULT_TICKERS.copy(), str(exc)
+        errors.append(f"GitHub CSV: {type(exc).__name__}: {exc}")
+
+    # Source 2: Wikipedia.
+    wiki_url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+    try:
+        tables = pd.read_html(wiki_url)
+        if not tables or "Symbol" not in tables[0].columns:
+            raise ValueError("Wikipedia table does not contain a Symbol column")
+
+        symbols = (
+            tables[0]["Symbol"]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .tolist()
+        )
+        symbols = [s.replace(".", "-") for s in symbols if s]
+
+        if len(symbols) < 450:
+            raise ValueError(f"Wikipedia returned only {len(symbols)} symbols")
+
+        return list(dict.fromkeys(symbols)), None
+    except Exception as exc:
+        errors.append(f"Wikipedia: {type(exc).__name__}: {exc}")
+
+    # Last-resort fallback so the app still runs.
+    return DEFAULT_TICKERS.copy(), " | ".join(errors)
 
 # -----------------------------
 # Utility helpers
@@ -569,9 +623,11 @@ if universe == "S&P 500":
     tickers, sp500_error = load_sp500_tickers()
     if sp500_error:
         st.warning(
-            "Could not refresh the S&P 500 constituent list, so the app is using "
+            "Could not refresh the full S&P 500 constituent list, so the app is using "
             "the built-in fallback watchlist for this run."
         )
+        with st.expander("S&P 500 load error details"):
+            st.code(sp500_error)
 else:
     tickers = normalize_tickers(ticker_text)
 
