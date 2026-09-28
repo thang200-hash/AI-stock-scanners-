@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 import yfinance as yf
 
-APP_VERSION = "MVP3 S&P 500"
+APP_VERSION = "MVP2 FINAL"
 
 st.set_page_config(
     page_title=f"AI Stock Scanner {APP_VERSION}",
@@ -19,22 +19,6 @@ DEFAULT_TICKERS = [
     "AAPL","MSFT","GOOGL","AMZN","META","NVDA","AVGO","AMD","ORCL","CRM",
     "ADBE","NFLX","COST","WMT","V","MA","JPM","BRK-B","LLY","UNH"
 ]
-
-
-@st.cache_data(ttl=86400, show_spinner=False)
-def load_sp500_tickers():
-    """Load the current S&P 500 constituent list from Wikipedia.
-    Falls back to the default watchlist if the public table is unavailable.
-    """
-    url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-    try:
-        tables = pd.read_html(url)
-        symbols = tables[0]["Symbol"].astype(str).str.strip().tolist()
-        # Yahoo Finance uses '-' rather than '.' for share-class tickers.
-        symbols = [s.replace(".", "-") for s in symbols if s]
-        return list(dict.fromkeys(symbols)), None
-    except Exception as exc:
-        return DEFAULT_TICKERS.copy(), str(exc)
 
 # -----------------------------
 # Utility helpers
@@ -79,7 +63,7 @@ def normalize_tickers(text):
         t = raw.strip().upper()
         if t and t not in result:
             result.append(t)
-    return result
+    return result[:100]
 
 def weighted_average(values):
     valid = [(v, w) for v, w in values if v is not None and w > 0]
@@ -511,18 +495,10 @@ st.caption(
 with st.sidebar:
     st.header("Scanner Settings")
 
-    universe = st.radio(
-        "Universe",
-        ["S&P 500", "Custom tickers"],
-        index=0,
-        help="S&P 500 loads the current public constituent list. Custom tickers lets you scan your own list."
-    )
-
     ticker_text = st.text_area(
-        "Custom tickers",
+        "Tickers",
         value=", ".join(DEFAULT_TICKERS),
-        height=180,
-        disabled=(universe == "S&P 500")
+        height=180
     )
 
     account_value = st.number_input(
@@ -548,33 +524,24 @@ with st.sidebar:
 if not run:
     st.markdown(
         """
-### MVP3 S&P 500 includes
-- S&P 500 universe mode plus custom-ticker mode
+### MVP2 FINAL includes
 - Live/public market and fundamental data via `yfinance`
 - Data-quality validation
 - Growth and Stable scoring models
-- Future-growth and valuation scoring
+- Future-growth scoring
+- Valuation scoring
 - Preliminary fair-value and buy-zone engine
 - Red-flag system
-- Position sizing and CSV export
+- Position sizing and suggested stop level
+- CSV export
 
-**Important:** MVP3 is a screening and research tool. Its fair-value model is still preliminary,
-not a full institutional DCF. A 30–70% return is a research target to investigate, not a promised
-or forced outcome. Validate finalists with filings and deeper valuation before using real money.
+**Important:** The fair-value model is still an MVP model, not a full institutional DCF.
+Validate results before using real money.
         """
     )
     st.stop()
 
-if universe == "S&P 500":
-    tickers, sp500_error = load_sp500_tickers()
-    if sp500_error:
-        st.warning(
-            "Could not refresh the S&P 500 constituent list, so the app is using "
-            "the built-in fallback watchlist for this run."
-        )
-else:
-    tickers = normalize_tickers(ticker_text)
-
+tickers = normalize_tickers(ticker_text)
 if not tickers:
     st.error("Please enter at least one ticker.")
     st.stop()
@@ -661,7 +628,7 @@ st.dataframe(
 st.download_button(
     "Download Full Results CSV",
     data=df.to_csv(index=False).encode("utf-8"),
-    file_name=f"AI_Stock_Scanner_MVP3_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+    file_name=f"AI_Stock_Scanner_MVP2_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
     mime="text/csv"
 )
 
@@ -692,7 +659,7 @@ with right:
         st.write(f"**Suggested stop reference:** ${row['Suggested Stop']:.2f}")
 
 st.warning(
-    "MVP3 S&P 500 is a research tool. It does not guarantee returns, "
+    "MVP2 FINAL is a research tool. It does not guarantee 10–20% annual returns, "
     "does not replace professional advice, and does not execute trades. "
     "Use paper trading and validation before considering live capital."
 )
